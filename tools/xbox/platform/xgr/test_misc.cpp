@@ -88,7 +88,9 @@ static const GUID kGameEvent = {0xbbfbdcc7, 0xbfe7, 0x409b, {0xa5, 0xca, 0xed, 0
 static const GUID kUser = {0x01acd177, 0x91f9, 0x4763, {0xa3, 0x8e, 0xcc, 0xbb, 0x55, 0xce, 0x32, 0xe0}};
 static const GUID kSystem3 = {0x67ce4bfc, 0xb1d1, 0x4ac7, {0xbc, 0x3a, 0xcb, 0x92, 0x19, 0xa9, 0x7a, 0x85}};
 static const GUID kActivation = {0x2e4f76fe, 0x0fc7, 0x461e, {0xab, 0x4d, 0xa4, 0x49, 0x94, 0x34, 0xc3, 0xcf}};
+static const GUID kGame = {0x973a344e, 0x24bf, 0x4d0f, {0x84, 0x57, 0x56, 0xc5, 0x34, 0x89, 0x2b, 0x29}};
 static const GUID kInvite2 = {0x014d1cc3, 0xbcfe, 0x41ff, {0xb2, 0xf0, 0xe1, 0xef, 0x07, 0x15, 0x58, 0x28}};
+static const GUID kSystemAnalytics = {0xb884675d, 0xb738, 0x4a9c, {0x81, 0x5d, 0x9a, 0x9a, 0x1e, 0x0c, 0x6c, 0x9b}};
 static const GUID kStore = {0x0dd112ac, 0x7c24, 0x448c, {0xb9, 0x2b, 0x39, 0x60, 0xfb, 0x5b, 0xd3, 0x0c}};
 static const GUID kError = {0x8ca467f7, 0x22e8, 0x4096, {0x84, 0x56, 0xbb, 0x8a, 0xa1, 0x3f, 0x79, 0xd8}};
 
@@ -429,6 +431,25 @@ static void CheckPendingInvites() {
   Check(acceptInvite(invite.self, nullptr) == E_INVALIDARG, "XGameInviteAcceptPendingInvite rejects a null invite URI");
 }
 
+struct AnalyticsInfo { uint16_t os[4], hosting[4]; char family[64], form[64]; };
+
+static void CheckTitleIdAndAnalytics() {
+  Api game = Get("IXGameImpl", kGame);
+  auto titleId = game.At<HRESULT (*)(void*, uint32_t*)>(3, "XGameGetXboxTitleId");
+  Check(titleId(game.self, nullptr) == E_INVALIDARG,
+        "XGameGetXboxTitleId rejects a null title id pointer");
+  uint32_t title = 0;
+  Check(titleId(game.self, &title) == HRESULT_FROM_WIN32(ERROR_NOT_FOUND),
+        "XGameGetXboxTitleId reports the documented ERROR_NOT_FOUND without a MicrosoftGame.config TitleId");
+  Api analytics = Get("IXSystemAnalyticsImpl", kSystemAnalytics);
+  auto get = analytics.At<void* (*)(void*, AnalyticsInfo*)>(3, "XSystemGetAnalyticsInfo");
+  AnalyticsInfo info{};
+  Check(get(analytics.self, &info) == &info && std::strcmp(info.family, "Windows.Xbox") == 0 &&
+            std::strcmp(info.form, "Xbox Series X") == 0 && std::memcmp(info.os, info.hosting, sizeof(info.os)) == 0 &&
+            info.os[2] != 0,
+        "XSystemGetAnalyticsInfo reports the pinned family and form and equal os and hosting versions");
+}
+
 int main() {
   HMODULE module = LoadLibraryA("xgameruntime.dll");
   if (!module) {
@@ -448,6 +469,7 @@ int main() {
   CheckGameEvent();
   CheckHandleTracking();
   CheckPendingInvites();
+  CheckTitleIdAndAnalytics();
   std::printf("%s: %d failure(s)\n", g_failures ? "FAILED" : "ALL PASSED", g_failures);
   return g_failures ? 1 : 0;
 }
